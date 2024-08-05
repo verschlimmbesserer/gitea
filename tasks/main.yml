@@ -1,0 +1,76 @@
+---
+
+- name: "Install dependencies for Ubuntu or Debian"
+  ansible.builtin.apt:
+    name: "{{ gitea_packages }}"
+    state: present
+  when: ansible_facts['os_family'] == "Debian"
+
+- name: "Download gitea"
+  ansible.builtin.get_url:
+    url: "{{ gitea_url }}"
+    dest: "{{ gitea_dir }}/gitea"
+    mode: "0755"
+    owner: root
+    group: root
+
+- name: "Create git group"
+  ansible.builtin.group:
+    name: git
+    state: present
+
+- name: "Create Git User"
+  ansible.builtin.user:
+    name: git
+    shell: /bin/bash
+    group: git
+    create_home: true
+    system: true
+    comment: Git Version Control
+
+- name: "Create gitea directorys"
+  ansible.builtin.file:
+    path: "/var/lib/gitea/{{ item }}"
+    state: directory
+    mode: "0755"
+    owner: git
+    group: git
+  loop:
+    - "/var/lib/gitea/"
+    - "/var/lib/gitea/custom"
+    - "/var/lib/gitea/data"
+    - "/var/lib/gitea/log"
+
+- name: "Create gitea config directory"
+  ansible.builtin.file:
+    path: /etc/gitea
+    state: directory
+    mode: "0770"
+    owner: root
+    group: git
+
+- name: Deploy gitea service file
+  ansible.builtin.copy:
+    src: gitea.service
+    dest: /etc/systemd/system/gitea.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: service
+
+- name: Reload systemctl daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: service is changed
+  notify: Start gitea
+
+- name: Deploy gitea app.ini config file
+  ansible.builtin.template:
+    src: app.j2
+    dest: "/etc/gitea/{{ item.key }}.ini"
+    owner: root
+    group: git
+  loop: "{{ gitea_config | dict2items }}"
+  when: gitea_config is defined
+  notify:
+    - Restart gitea
